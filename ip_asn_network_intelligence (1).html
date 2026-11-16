@@ -1,0 +1,2064 @@
+<!DOCTYPE html>
+<html lang="id" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NetTrace Pro // Multi-Source IP, BGP & ASN Intelligence</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Leaflet CSS & JS dari cdnjs (lebih cepat & stabil) dengan fallback otomatis -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <script>window.leafletLoadFailed = false;</script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" crossorigin="anonymous" referrerpolicy="no-referrer" onerror="window.leafletLoadFailed = true;"></script>
+
+    <!-- FontAwesome untuk Ikon Diagnostik -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        cyber: {
+                            bg: '#040814',
+                            card: '#0B1224',
+                            border: '#1E293B',
+                            cyan: '#06B6D4',
+                            emerald: '#10B981',
+                            accent: '#3B82F6'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        /* Kustomisasi Scrollbar & Efek Cyber */
+        body {
+            background-color: #040814;
+            background-image: 
+                radial-gradient(circle at 12% 10%, rgba(6, 182, 212, 0.12) 0%, transparent 42%),
+                radial-gradient(circle at 88% 20%, rgba(59, 130, 246, 0.10) 0%, transparent 40%),
+                radial-gradient(circle at 50% 90%, rgba(16, 185, 129, 0.08) 0%, transparent 45%),
+                linear-gradient(to right, rgba(30, 41, 59, 0.22) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(30, 41, 59, 0.22) 1px, transparent 1px);
+            background-size: 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
+        }
+
+        .glass-panel {
+            background: linear-gradient(145deg, rgba(13, 21, 40, 0.92), rgba(8, 13, 27, 0.96));
+            box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.05);
+        }
+
+        /* Custom Leaflet Dark Mode Filter */
+        .leaflet-layer,
+        .leaflet-control-zoom-in,
+        .leaflet-control-zoom-out,
+        .leaflet-control-attribution {
+            filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+        }
+        .leaflet-container {
+            background: #0D1528 !important;
+            border-radius: 0.75rem;
+            z-index: 10;
+        }
+
+        /* Animasi Pulse Radar */
+        @keyframes radar-ping {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            70% { transform: scale(1.6); opacity: 0; }
+            100% { transform: scale(1.6); opacity: 0; }
+        }
+        .radar-dot::before {
+            content: '';
+            position: absolute;
+            inset: -4px;
+            border-radius: 9999px;
+            background-color: #10B981;
+            animation: radar-ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+
+        @keyframes flow-dash {
+            to { stroke-dashoffset: -24; }
+        }
+        .vpn-flow-line {
+            stroke-dasharray: 6 6;
+            animation: flow-dash 1s linear infinite;
+        }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #040814; }
+        ::-webkit-scrollbar-thumb { background: #1E293B; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #334155; }
+    </style>
+</head>
+<body class="text-slate-200 font-sans min-h-screen flex flex-col antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+
+    <!-- Notifikasi Toast (Pengganti alert) -->
+    <div id="toast-container" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- Header / Navbar -->
+    <header class="border-b border-slate-800/80 bg-cyber-bg/85 backdrop-blur-xl sticky top-0 z-30">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-400 via-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-cyan-500/25 ring-1 ring-white/15">
+                    <i class="fa-solid fa-shield-halved text-white text-base"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-base sm:text-lg tracking-tight text-white flex items-center gap-2">
+                        NET<span class="text-cyan-400">TRACE</span> <span class="text-[11px] font-mono px-2 py-0.5 rounded-md bg-gradient-to-r from-cyan-500/20 to-emerald-500/20 text-emerald-300 border border-emerald-500/30">PRO + VPN</span>
+                    </h1>
+                    <p class="hidden sm:block text-[11px] text-slate-400">Unified ASN • Geolocation • Regional VPN Tunnel</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2.5">
+                <!-- Indikator Status VPN Header -->
+                <div id="header-vpn-pill" class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono text-slate-400">
+                    <span id="header-vpn-dot" class="w-2 h-2 rounded-full bg-slate-600"></span>
+                    <span id="header-vpn-text">VPN: Direct ISP</span>
+                </div>
+
+                <button id="btn-my-ip" onclick="detectMyIP()" class="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 border border-slate-700/80 text-xs sm:text-sm font-medium text-emerald-400 transition-all active:scale-95 shadow-sm">
+                    <span class="relative flex h-2 w-2 radar-dot">
+                        <span class="relative inline-flex rounded-full h-2 w-2 bg-emerald-400"></span>
+                    </span>
+                    <span>Deteksi IP Saya</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8 space-y-6">
+        
+        <!-- Search & Command Bar -->
+        <section class="glass-panel border border-slate-800/90 rounded-2xl p-4 sm:p-6 backdrop-blur-md">
+            <form id="search-form" class="flex flex-col sm:flex-row gap-3">
+                <div class="relative flex-1">
+                    <div class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
+                        <i class="fa-solid fa-terminal text-cyan-400 text-sm"></i>
+                    </div>
+                    <input 
+                        type="text" 
+                        id="ip-input" 
+                        placeholder="Masukkan IP, URL, atau Domain tujuan (mis. 8.8.8.8, 1.1.1.1, detik.com)..." 
+                        class="w-full pl-11 pr-10 py-3.5 bg-slate-950/90 border border-slate-700/80 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-500/20 rounded-xl font-mono text-sm text-white placeholder-slate-500 outline-none transition-all"
+                        autocomplete="off"
+                        spellcheck="false"
+                    >
+                    <button type="button" id="btn-clear-input" onclick="clearInput()" class="hidden absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-500 hover:text-slate-300">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+                <button 
+                    type="submit" 
+                    id="btn-search"
+                    class="px-6 py-3.5 bg-gradient-to-r from-cyan-500 via-blue-600 to-indigo-600 hover:from-cyan-400 hover:to-blue-500 text-white font-semibold rounded-xl shadow-lg shadow-cyan-500/25 flex items-center justify-center gap-2 transition-all active:scale-95 whitespace-nowrap"
+                >
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <span>Lacak & Siapkan VPN</span>
+                </button>
+            </form>
+
+            <!-- Quick Sample Chips -->
+            <div class="mt-3.5 flex flex-wrap items-center gap-2 text-xs">
+                <span class="text-slate-500 font-medium mr-1">Target Cepat:</span>
+                <button type="button" onclick="quickLookup('8.8.8.8')" class="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 text-slate-300 font-mono transition">🇺🇸 8.8.8.8 (US - Mountain View)</button>
+                <button type="button" onclick="quickLookup('1.1.1.1')" class="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 text-slate-300 font-mono transition">🇦🇺 1.1.1.1 (AU - Brisbane)</button>
+                <button type="button" onclick="quickLookup('detik.com')" class="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 text-cyan-300 font-mono transition">🇮🇩 detik.com (ID - Jakarta)</button>
+                <button type="button" onclick="quickLookup('2606:4700:4700::1111')" class="px-2.5 py-1 rounded-lg bg-slate-800/70 hover:bg-slate-800 border border-slate-700/70 text-slate-300 font-mono transition">IPv6 Cloudflare</button>
+            </div>
+
+            <!-- Panel Hasil Resolusi Domain -->
+            <div id="domain-dns-panel" class="hidden mt-4 pt-3.5 border-t border-slate-800/80">
+                <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
+                    <span class="text-xs font-medium text-cyan-400 flex items-center gap-1.5">
+                        <i class="fa-solid fa-dns"></i>
+                        <span>Resolusi DNS Domain: <strong id="resolved-domain-name" class="font-mono text-white"></strong></span>
+                    </span>
+                    <span class="text-[11px] text-slate-500">Pilih IP server yang ingin dilacak:</span>
+                </div>
+                <div id="resolved-ip-chips" class="flex flex-wrap gap-2"></div>
+            </div>
+        </section>
+
+        <!-- Status / Loading / Warning Banner -->
+        <div id="status-banner" class="hidden rounded-2xl p-4 border text-sm flex items-start sm:items-center justify-between gap-3"></div>
+
+        <!-- Dashboard Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            
+            <!-- Kolom Kiri & Tengah (8 Kolom di Desktop) -->
+            <div class="lg:col-span-8 space-y-6">
+                
+                <!-- KARTU TERPADU: IP, ASN, ISP, & LOKASI KOTA DALAM SATU KESATUAN -->
+                <div class="glass-panel border border-slate-800/90 rounded-2xl p-5 sm:p-6 relative overflow-hidden">
+                    <div class="absolute -top-24 -right-24 w-64 h-64 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    <div class="absolute -bottom-24 -left-24 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none"></div>
+                    
+                    <!-- Baris Atas: IP Address & Tombol Aksi Cepat -->
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-800/80">
+                        <div>
+                            <div class="flex flex-wrap items-center gap-2 mb-2">
+                                <span id="ip-version-badge" class="px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30">IPv4</span>
+                                <span id="ip-source-badge" class="px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">IP Perangkat Anda</span>
+                                <span id="accuracy-score-badge" class="px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-slate-800 text-slate-300 border border-slate-700 flex items-center gap-1.5">
+                                    <i class="fa-solid fa-crosshairs text-cyan-400"></i>
+                                    <span>Menganalisis Akurasi...</span>
+                                </span>
+                            </div>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <h2 id="res-ip" class="text-2xl sm:text-3xl lg:text-4xl font-mono font-bold text-white tracking-tight break-all">Memuat...</h2>
+                                <button onclick="copyField('res-ip', 'Alamat IP')" title="Salin Alamat IP" class="p-2 rounded-xl bg-slate-800/90 hover:bg-cyan-500/20 hover:text-cyan-400 text-slate-400 border border-slate-700/80 transition active:scale-90">
+                                    <i class="fa-regular fa-copy"></i>
+                                </button>
+                            </div>
+                            <div id="res-ptr" class="mt-1.5 text-xs font-mono text-slate-400 flex items-center gap-1.5">
+                                <i class="fa-solid fa-arrow-right-arrow-left text-slate-500"></i>
+                                <span>rDNS / PTR: <span class="text-slate-300">Memeriksa...</span></span>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap sm:flex-col items-stretch sm:items-end gap-2">
+                            <button onclick="scrollToVpnPanel()" class="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/20 transition active:scale-95">
+                                <i class="fa-solid fa-bolt"></i>
+                                <span>Hubungkan VPN ke Kota Ini</span>
+                            </button>
+                            <div class="flex items-center gap-2">
+                                <button onclick="copyAllJson()" class="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-[11px] font-mono text-slate-300 flex items-center gap-1.5 transition active:scale-95">
+                                    <i class="fa-solid fa-code text-cyan-400"></i>
+                                    <span>JSON</span>
+                                </button>
+                                <button onclick="copyTextReport()" class="px-3 py-1.5 rounded-xl bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-[11px] font-mono text-emerald-300 flex items-center gap-1.5 transition active:scale-95">
+                                    <i class="fa-solid fa-file-lines text-emerald-400"></i>
+                                    <span>Laporan</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- KARTU UNIFIED: ASN + LOKASI KOTA + ISP DALAM SATU GRID TERPADU -->
+                    <div class="mt-5 p-4 sm:p-5 rounded-2xl bg-slate-950/85 border border-cyan-500/25 shadow-inner space-y-4">
+                        <div class="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-800/80">
+                            <span class="text-xs font-mono uppercase tracking-wider text-cyan-400 font-semibold flex items-center gap-2">
+                                <i class="fa-solid fa-layer-group"></i>
+                                <span>Profil Terpadu: ASN, ISP & Lokasi Kota</span>
+                            </span>
+                            <span id="res-radius" class="text-[11px] font-mono px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-300 border border-amber-500/25">± 10 km (Level Kota)</span>
+                        </div>
+
+                        <!-- 3 Kolom Utama yang Disatukan: Lokasi Kota | ASN & BGP | ISP & Jaringan -->
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <!-- Blok 1: Lokasi Kota & Negara -->
+                            <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-1.5 relative group">
+                                <div class="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-location-dot text-rose-400"></i> LOKASI KOTA & WILAYAH</span>
+                                    <button onclick="copyField('unified-city-country', 'Lokasi Kota')" class="text-slate-500 hover:text-white"><i class="fa-regular fa-copy"></i></button>
+                                </div>
+                                <div id="unified-city-country" class="text-base sm:text-lg font-bold text-white leading-snug">-</div>
+                                <div id="unified-region-postal" class="text-xs text-slate-400">-</div>
+                                <div class="pt-1 flex items-center justify-between text-[11px] font-mono text-cyan-400 border-t border-slate-800/80">
+                                    <span id="res-coords">-</span>
+                                    <span id="res-utc-offset" class="text-emerald-400">UTC</span>
+                                </div>
+                            </div>
+
+                            <!-- Blok 2: ASN & BGP Routing -->
+                            <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-1.5 relative group">
+                                <div class="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-sitemap text-cyan-400"></i> NOMOR ASN & PREFIX</span>
+                                    <button onclick="copyField('res-asn', 'Nomor ASN')" class="text-slate-500 hover:text-white"><i class="fa-regular fa-copy"></i></button>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <div id="res-asn" class="text-lg sm:text-xl font-mono font-bold text-cyan-400">-</div>
+                                    <span id="res-rir" class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">RIR</span>
+                                </div>
+                                <div id="res-bgp-prefix" class="text-xs font-mono text-emerald-400 truncate">BGP Prefix: -</div>
+                                <div class="pt-1 flex items-center justify-between text-[11px] font-mono text-slate-400 border-t border-slate-800/80">
+                                    <span id="res-timezone" class="truncate">-</span>
+                                    <span id="res-localtime" class="text-slate-300 shrink-0">-</span>
+                                </div>
+                            </div>
+
+                            <!-- Blok 3: ISP & Organisasi Pemilik -->
+                            <div class="p-3.5 rounded-xl bg-slate-900/90 border border-slate-800/90 space-y-1.5 relative group">
+                                <div class="flex items-center justify-between text-[11px] text-slate-400 font-medium">
+                                    <span class="flex items-center gap-1.5"><i class="fa-solid fa-server text-emerald-400"></i> ISP & INFRASTRUKTUR</span>
+                                    <button onclick="copyField('res-isp', 'Nama ISP')" class="text-slate-500 hover:text-white"><i class="fa-regular fa-copy"></i></button>
+                                </div>
+                                <div id="res-isp" class="text-base font-bold text-white truncate" title="">-</div>
+                                <div id="res-org" class="text-xs text-slate-400 truncate">-</div>
+                                <div class="pt-1 flex items-center justify-between text-[11px] font-mono border-t border-slate-800/80">
+                                    <span id="res-net-class" class="text-purple-400 truncate">-</span>
+                                    <span id="res-asn-domain" class="text-slate-500 truncate ml-1">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Penjelasan Akurasi / Anti-Nyasar -->
+                        <div id="accuracy-explanation" class="p-3 rounded-xl bg-slate-900/70 border border-slate-800/90 text-xs text-slate-300 flex items-start gap-2.5">
+                            <i class="fa-solid fa-circle-info text-cyan-400 mt-0.5 text-sm shrink-0"></i>
+                            <div id="accuracy-explanation-text" class="leading-relaxed">
+                                Memverifikasi konsensus koordinat dan routing BGP dari beberapa sumber independen...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MODUL BARU: SMART REGIONAL VPN TUNNEL & CONFIG GENERATOR -->
+                <div id="vpn-tunnel-card" class="glass-panel border border-emerald-500/30 rounded-2xl p-5 sm:p-6 relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-72 h-72 bg-emerald-500/10 rounded-full blur-3xl -mr-20 -mt-20 pointer-events-none"></div>
+
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800/80">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                                <h3 class="font-bold text-white text-base sm:text-lg flex items-center gap-2">
+                                    <i class="fa-solid fa-shield-cat text-emerald-400"></i>
+                                    <span>Smart VPN Tunnel ke Wilayah Target</span>
+                                </h3>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">
+                                Hubungkan sesi tunnel terenkripsi atau buat profil konfigurasi **WireGuard / OpenVPN / SOCKS5** otomatis ke gateway kota tujuan.
+                            </p>
+                        </div>
+
+                        <!-- Tombol Connect / Disconnect Utama -->
+                        <button id="btn-vpn-connect" onclick="toggleVpnConnection()" class="px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/25 transition-all active:scale-95 shrink-0">
+                            <i id="btn-vpn-icon" class="fa-solid fa-power-off"></i>
+                            <span id="btn-vpn-label">Hubungkan VPN ke Target</span>
+                        </button>
+                    </div>
+
+                    <!-- Visualisasi Rute Tunnel (Perangkat Anda -> Gateway Regional Target) -->
+                    <div class="mt-4 p-4 rounded-xl bg-slate-950/90 border border-slate-800 grid grid-cols-1 sm:grid-cols-11 items-center gap-3">
+                        <div class="sm:col-span-4 p-3 rounded-xl bg-slate-900/90 border border-slate-800">
+                            <div class="text-[10px] font-mono text-slate-500 uppercase">Perangkat Lokal Anda</div>
+                            <div class="text-xs font-semibold text-white mt-0.5 flex items-center gap-1.5">
+                                <i class="fa-solid fa-laptop-code text-cyan-400"></i>
+                                <span>Client Interface (tun0)</span>
+                            </div>
+                            <div id="vpn-local-status" class="text-[11px] font-mono text-slate-400 mt-1">Status: Belum Terenkripsi</div>
+                        </div>
+
+                        <!-- Garis Koneksi Animasi -->
+                        <div class="sm:col-span-3 flex flex-col items-center justify-center py-1">
+                            <div id="vpn-tunnel-badge" class="px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700 mb-1.5">
+                                STANDBY
+                            </div>
+                            <svg class="w-full h-4 overflow-visible" viewBox="0 0 120 12">
+                                <line x1="4" y1="6" x2="116" y2="6" stroke="#1E293B" stroke-width="2" stroke-linecap="round"/>
+                                <line id="vpn-animated-stroke" x1="4" y1="6" x2="116" y2="6" stroke="#10B981" stroke-width="2.5" stroke-linecap="round" class="hidden vpn-flow-line"/>
+                            </svg>
+                            <div id="vpn-latency-label" class="text-[10px] font-mono text-slate-500 mt-1">WireGuard • ChaCha20</div>
+                        </div>
+
+                        <div class="sm:col-span-4 p-3 rounded-xl bg-slate-900/90 border border-emerald-500/25">
+                            <div class="text-[10px] font-mono text-emerald-400 uppercase">Exit Node / Gateway Kota</div>
+                            <div id="vpn-target-city-label" class="text-xs font-bold text-white mt-0.5 truncate">Menunggu Target IP...</div>
+                            <div id="vpn-target-gateway-ip" class="text-[11px] font-mono text-cyan-400 mt-1 truncate">Gateway: -</div>
+                        </div>
+                    </div>
+
+                    <!-- Tab Konfigurasi VPN Siap Pakai (WireGuard / OpenVPN / URI) -->
+                    <div class="mt-4 space-y-3">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex items-center gap-1.5 bg-slate-950 p-1 rounded-xl border border-slate-800">
+                                <button type="button" onclick="switchVpnTab('wireguard')" id="tab-wg" class="px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition">WireGuard (.conf)</button>
+                                <button type="button" onclick="switchVpnTab('openvpn')" id="tab-ovpn" class="px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-white transition">OpenVPN (.ovpn)</button>
+                                <button type="button" onclick="switchVpnTab('socks5')" id="tab-socks" class="px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-white transition">SOCKS5 / URI</button>
+                            </div>
+
+                            <div class="flex items-center gap-2">
+                                <button type="button" onclick="copyVpnConfig()" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 flex items-center gap-1.5 transition active:scale-95">
+                                    <i class="fa-regular fa-copy"></i>
+                                    <span>Salin Config</span>
+                                </button>
+                                <button type="button" onclick="downloadVpnConfig()" class="px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-xs font-mono text-emerald-300 flex items-center gap-1.5 transition active:scale-95">
+                                    <i class="fa-solid fa-download"></i>
+                                    <span>Unduh File</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <pre id="vpn-config-preview" class="p-3.5 rounded-xl bg-slate-950 border border-slate-800/90 font-mono text-[11px] leading-relaxed text-emerald-300 overflow-x-auto max-h-48"># Melacak target IP untuk menghasilkan profil WireGuard regional otomatis...</pre>
+                    </div>
+                </div>
+
+                <!-- Peta Interaktif dengan Radius Akurasi & Fallback Radar SVG -->
+                <div class="glass-panel border border-slate-800/90 rounded-2xl p-5 space-y-3">
+                    <div class="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                            <h3 class="font-semibold text-white flex items-center gap-2 text-sm">
+                                <i class="fa-solid fa-location-crosshairs text-cyan-400"></i>
+                                <span>Peta Geolocation & Radius Akurasi</span>
+                            </h3>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Lingkaran biru menunjukkan area cakupan POP/Gateway ISP tempat node VPN regional berada.</p>
+                        </div>
+                        <a id="gmaps-link" href="#" target="_blank" rel="noopener noreferrer" class="text-xs text-cyan-400 hover:text-cyan-300 flex items-center gap-1 transition bg-cyan-500/10 px-3 py-1.5 rounded-lg border border-cyan-500/20">
+                            <span>Buka di Google Maps</span>
+                            <i class="fa-solid fa-arrow-up-right-from-square text-[10px]"></i>
+                        </a>
+                    </div>
+                    <div id="map" class="w-full h-72 sm:h-80 border border-slate-800 rounded-xl overflow-hidden relative bg-slate-950"></div>
+                </div>
+
+                <!-- Tabel Perbandingan Multi-Sumber (Cross-Verification Matrix) -->
+                <div class="glass-panel border border-slate-800/90 rounded-2xl p-5 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-semibold text-white flex items-center gap-2 text-sm">
+                                <i class="fa-solid fa-scale-balanced text-emerald-400"></i>
+                                <span>Matriks Verifikasi Silang Multi-Sumber</span>
+                            </h3>
+                            <p class="text-[11px] text-slate-400 mt-0.5">Membandingkan database Geolocation & Registry RIR/BGP secara paralel untuk mencegah lokasi meleset.</p>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-800 text-slate-400 font-mono">
+                                    <th class="py-2.5 px-3">Sumber Data</th>
+                                    <th class="py-2.5 px-3">Negara / Kota</th>
+                                    <th class="py-2.5 px-3">ASN & Organisasi</th>
+                                    <th class="py-2.5 px-3">Koordinat</th>
+                                    <th class="py-2.5 px-3">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="comparison-table-body" class="divide-y divide-slate-800/60 font-mono text-slate-300">
+                                <tr>
+                                    <td colspan="5" class="py-4 text-center text-slate-500">Menunggu pemindaian IP...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Kolom Kanan: Riwayat Pencarian Lokal (4 Kolom di Desktop) -->
+            <div class="lg:col-span-4 space-y-6">
+                <div class="glass-panel border border-slate-800/90 rounded-2xl p-5 flex flex-col h-full max-h-[880px]">
+                    <div class="flex items-center justify-between pb-4 border-b border-slate-800/80">
+                        <div>
+                            <h3 class="font-semibold text-white flex items-center gap-2 text-sm">
+                                <i class="fa-solid fa-clock-rotate-left text-cyan-400"></i>
+                                <span>Riwayat Pencarian & Node</span>
+                            </h3>
+                            <p class="text-xs text-slate-500 mt-0.5">Klik item untuk beralih lokasi & VPN</p>
+                        </div>
+                        <button onclick="clearHistory()" id="btn-clear-history" class="text-xs text-rose-400 hover:text-rose-300 px-2.5 py-1.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition">
+                            Hapus Semua
+                        </button>
+                    </div>
+
+                    <!-- Daftar Riwayat -->
+                    <div id="history-list" class="flex-1 overflow-y-auto py-3 space-y-2.5 pr-1">
+                        <!-- Item riwayat akan dirender di sini oleh JS -->
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-slate-800/80 py-5 mt-8 text-center text-xs text-slate-500">
+        <div class="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
+            <p>NetTrace Pro • Unified IP, ASN & Regional VPN Tunnel Intelligence</p>
+            <p class="font-mono text-slate-600">Multi-Source BGP & Geolocation Engine</p>
+        </div>
+    </footer>
+
+    <script>
+        /**
+         * Konfigurasi & State Aplikasi NetTrace Pro + VPN
+         */
+        const HISTORY_STORAGE_KEY = 'nettrace_pro_ip_history_v4';
+        let currentData = null;
+        let map = null;
+        let mapLayerGroup = null;
+        let memoryHistoryFallback = [];
+
+        // State VPN Tunnel
+        let vpnConnected = false;
+        let activeVpnTab = 'wireguard';
+        let generatedVpnProfiles = {
+            wireguard: '',
+            openvpn: '',
+            socks5: '',
+            filename: 'nettrace-vpn.conf',
+            gatewayHost: ''
+        };
+
+        // Built-in Fallback Dataset jika sandbox preview memblokir seluruh request jaringan eksternal
+        const BUILTIN_OFFLINE_DB = {
+            '8.8.8.8': {
+                ip: '8.8.8.8', asn: 'AS15169', bgpPrefix: '8.8.8.0/24', rirName: 'ARIN',
+                isp: 'Google LLC', org: 'Google Public DNS', domain: 'google.com',
+                continent: 'North America', country: 'United States', countryCode: 'US',
+                region: 'California', city: 'Mountain View', postal: '94043',
+                latitude: 37.3861, longitude: -122.0839, timezoneId: 'America/Los_Angeles',
+                utcOffset: '-08:00', callingCode: '+1', currency: 'USD', ptrRecord: 'dns.google'
+            },
+            '8.8.4.4': {
+                ip: '8.8.4.4', asn: 'AS15169', bgpPrefix: '8.8.4.0/24', rirName: 'ARIN',
+                isp: 'Google LLC', org: 'Google Public DNS', domain: 'google.com',
+                continent: 'North America', country: 'United States', countryCode: 'US',
+                region: 'California', city: 'Mountain View', postal: '94043',
+                latitude: 37.3861, longitude: -122.0839, timezoneId: 'America/Los_Angeles',
+                utcOffset: '-08:00', callingCode: '+1', currency: 'USD', ptrRecord: 'dns.google'
+            },
+            '1.1.1.1': {
+                ip: '1.1.1.1', asn: 'AS13335', bgpPrefix: '1.1.1.0/24', rirName: 'APNIC',
+                isp: 'Cloudflare, Inc.', org: 'APNIC and Cloudflare DNS Resolver project', domain: 'cloudflare.com',
+                continent: 'Oceania', country: 'Australia', countryCode: 'AU',
+                region: 'Queensland', city: 'South Brisbane', postal: '4101',
+                latitude: -27.4766, longitude: 153.0166, timezoneId: 'Australia/Brisbane',
+                utcOffset: '+10:00', callingCode: '+61', currency: 'AUD', ptrRecord: 'one.one.one.one'
+            },
+            '9.9.9.9': {
+                ip: '9.9.9.9', asn: 'AS19281', bgpPrefix: '9.9.9.0/24', rirName: 'ARIN',
+                isp: 'Quad9', org: 'Quad9 Anycast DNS', domain: 'quad9.net',
+                continent: 'North America', country: 'United States', countryCode: 'US',
+                region: 'California', city: 'Berkeley', postal: '94704',
+                latitude: 37.8715, longitude: -122.2730, timezoneId: 'America/Los_Angeles',
+                utcOffset: '-08:00', callingCode: '+1', currency: 'USD', ptrRecord: 'dns9.quad9.net'
+            },
+            '208.67.222.222': {
+                ip: '208.67.222.222', asn: 'AS36692', bgpPrefix: '208.67.222.0/24', rirName: 'ARIN',
+                isp: 'Cisco OpenDNS, LLC', org: 'OpenDNS Anycast Resolver', domain: 'opendns.com',
+                continent: 'North America', country: 'United States', countryCode: 'US',
+                region: 'California', city: 'San Francisco', postal: '94107',
+                latitude: 37.7697, longitude: -122.3933, timezoneId: 'America/Los_Angeles',
+                utcOffset: '-08:00', callingCode: '+1', currency: 'USD', ptrRecord: 'dns.opendns.com'
+            },
+            '2606:4700:4700::1111': {
+                ip: '2606:4700:4700::1111', asn: 'AS13335', bgpPrefix: '2606:4700:4700::/48', rirName: 'ARIN',
+                isp: 'Cloudflare, Inc.', org: 'Cloudflare IPv6 Anycast DNS', domain: 'cloudflare.com',
+                continent: 'North America', country: 'United States', countryCode: 'US',
+                region: 'California', city: 'San Francisco', postal: '94107',
+                latitude: 37.7621, longitude: -122.3971, timezoneId: 'America/Los_Angeles',
+                utcOffset: '-08:00', callingCode: '+1', currency: 'USD', ptrRecord: 'one.one.one.one'
+            }
+        };
+
+        // Inisialisasi saat halaman dimuat
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            renderHistory();
+            detectMyIP();
+
+            const form = document.getElementById('search-form');
+            const input = document.getElementById('ip-input');
+            const clearBtn = document.getElementById('btn-clear-input');
+
+            if (form) {
+                form.addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const rawQuery = input.value.trim();
+                    if (!rawQuery) {
+                        detectMyIP();
+                        return;
+                    }
+                    handleSmartQuery(rawQuery);
+                });
+            }
+
+            if (input) {
+                input.addEventListener('input', () => {
+                    if (input.value.trim().length > 0) {
+                        clearBtn.classList.remove('hidden');
+                    } else {
+                        clearBtn.classList.add('hidden');
+                    }
+                });
+            }
+        });
+
+        /**
+         * Notifikasi Toast UI (Menggantikan alert dan memperbaiki fungsi yang hilang)
+         */
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+
+            const colors = {
+                success: 'border-emerald-500/40 bg-slate-900/95 text-emerald-300',
+                error: 'border-rose-500/40 bg-slate-900/95 text-rose-300',
+                info: 'border-cyan-500/40 bg-slate-900/95 text-cyan-300'
+            };
+            const icons = {
+                success: 'fa-circle-check text-emerald-400',
+                error: 'fa-circle-exclamation text-rose-400',
+                info: 'fa-circle-info text-cyan-400'
+            };
+
+            const toast = document.createElement('div');
+            toast.className = `pointer-events-auto flex items-center gap-2.5 px-4 py-3 rounded-xl border shadow-2xl backdrop-blur-md text-xs font-medium transition-all duration-300 transform translate-y-2 opacity-0 ${colors[type] || colors.info}`;
+            toast.innerHTML = `<i class="fa-solid ${icons[type] || icons.info}"></i><span>${message}</span>`;
+
+            container.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.classList.remove('translate-y-2', 'opacity-0');
+            });
+
+            setTimeout(() => {
+                toast.classList.add('opacity-0', 'translate-y-2');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
+        /**
+         * Inisialisasi Peta Leaflet dengan Fallback Radar Canvas jika CDN terblokir
+         */
+        function initMap() {
+            const mapContainer = document.getElementById('map');
+            if (!mapContainer) return;
+
+            if (typeof L !== 'undefined' && !window.leafletLoadFailed) {
+                try {
+                    map = L.map('map', {
+                        zoomControl: true,
+                        attributionControl: false
+                    }).setView([-6.2088, 106.8456], 5);
+
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 18
+                    }).addTo(map);
+
+                    mapLayerGroup = L.layerGroup().addTo(map);
+                    return;
+                } catch (e) {
+                    console.warn('Leaflet init failed, switching to built-in radar map:', e);
+                }
+            }
+
+            // Fallback Peta Radar Bawaan (100% jalan tanpa CDN luar)
+            renderFallbackRadarMap(-6.2088, 106.8456, 'Jakarta, Indonesia', 'Menunggu target IP...');
+        }
+
+        function renderFallbackRadarMap(lat, lon, locationLabel, subLabel) {
+            const mapContainer = document.getElementById('map');
+            if (!mapContainer) return;
+            const latStr = typeof lat === 'number' ? lat.toFixed(4) : '0.0000';
+            const lonStr = typeof lon === 'number' ? lon.toFixed(4) : '0.0000';
+
+            mapContainer.innerHTML = `
+                <div class="w-full h-full flex flex-col items-center justify-center relative overflow-hidden bg-slate-950 p-4 text-center select-none">
+                    <div class="absolute inset-0 opacity-20" style="background-image: radial-gradient(#06B6D4 1px, transparent 1px), linear-gradient(to right, #1e293b 1px, transparent 1px), linear-gradient(to bottom, #1e293b 1px, transparent 1px); background-size: 24px 24px, 48px 48px, 48px 48px;"></div>
+                    <div class="w-40 h-40 rounded-full border border-cyan-500/30 flex items-center justify-center relative animate-pulse">
+                        <div class="w-24 h-24 rounded-full border border-cyan-400/40 flex items-center justify-center">
+                            <div class="w-4 h-4 rounded-full bg-cyan-400 shadow-lg shadow-cyan-400/60"></div>
+                        </div>
+                    </div>
+                    <div class="relative z-10 mt-3 space-y-1">
+                        <div class="text-xs font-mono text-cyan-400">RADAR KOORDINAT: ${latStr}, ${lonStr}</div>
+                        <div class="text-sm font-semibold text-white">${locationLabel}</div>
+                        <div class="text-[11px] text-slate-400">${subLabel}</div>
+                    </div>
+                </div>
+            `;
+        }
+
+        /**
+         * Handler Tombol Cepat (Deteksi IP Saya, Uji Akurasi, & Hapus Input)
+         */
+        function detectMyIP() {
+            const input = document.getElementById('ip-input');
+            const clearBtn = document.getElementById('btn-clear-input');
+            if (input) input.value = '';
+            if (clearBtn) clearBtn.classList.add('hidden');
+            const dnsPanel = document.getElementById('domain-dns-panel');
+            if (dnsPanel) dnsPanel.classList.add('hidden');
+            lookupIPMultiSource('', true);
+        }
+
+        function quickLookup(query) {
+            const input = document.getElementById('ip-input');
+            const clearBtn = document.getElementById('btn-clear-input');
+            if (input) input.value = query;
+            if (clearBtn) clearBtn.classList.remove('hidden');
+            handleSmartQuery(query);
+        }
+
+        function clearInput() {
+            const input = document.getElementById('ip-input');
+            const clearBtn = document.getElementById('btn-clear-input');
+            if (input) {
+                input.value = '';
+                input.focus();
+            }
+            if (clearBtn) clearBtn.classList.add('hidden');
+        }
+
+        /**
+         * Smart Input Parser: Ekstraksi IPv4/IPv6 dari teks kotor/URL, atau deteksi Domain
+         */
+        function parseUserInput(raw) {
+            const cleaned = raw.trim();
+
+            // 1. Cek apakah ada IPv4 di dalam teks (misal: "http://103.10.66.1:8080/admin" atau "IP: 8.8.8.8")
+            const ipv4Match = cleaned.match(/\b(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\b/);
+            if (ipv4Match) {
+                return { type: 'ip', value: ipv4Match[0] };
+            }
+
+            // 2. Bersihkan kurung siku IPv6 seperti [2606:4700:4700::1111]:443
+            let possibleIpv6 = cleaned.replace(/^https?:\/\//i, '').split('/')[0];
+            if (possibleIpv6.startsWith('[')) {
+                possibleIpv6 = possibleIpv6.slice(1).split(']')[0];
+            }
+            if (isValidIPv6(possibleIpv6)) {
+                return { type: 'ip', value: possibleIpv6 };
+            }
+
+            // 3. Cek apakah berupa URL atau Nama Domain (misal: "https://www.detik.com/news" -> "www.detik.com")
+            let domainCandidate = cleaned.replace(/^https?:\/\//i, '').split('/')[0].split('?')[0].split(':')[0].toLowerCase();
+            const domainRegex = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/;
+            if (domainRegex.test(domainCandidate)) {
+                return { type: 'domain', value: domainCandidate };
+            }
+
+            return { type: 'invalid', value: cleaned };
+        }
+
+        function isValidIPv6(ip) {
+            const ipv6Regex = /^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$/;
+            return ipv6Regex.test(ip);
+        }
+
+        /**
+         * Deteksi IP Privat, Bogon, Loopback, dan CGNAT (Anti-Nyasar)
+         */
+        function checkSpecialIP(ip) {
+            if (!ip.includes('.')) {
+                if (ip === '::1' || ip.toLowerCase().startsWith('fe80:') || ip.toLowerCase().startsWith('fc') || ip.toLowerCase().startsWith('fd')) {
+                    return { isSpecial: true, label: 'IPv6 Lokal / Link-Local / ULA', desc: 'Alamat IPv6 ini hanya berlaku di jaringan lokal (LAN/Router) dan tidak memiliki lokasi geografis publik di internet.' };
+                }
+                return { isSpecial: false };
+            }
+
+            const parts = ip.split('.').map(Number);
+            const [a, b] = parts;
+
+            if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) {
+                return { isSpecial: true, label: 'IP Privat Jaringan Lokal (RFC 1918)', desc: `Alamat ${ip} adalah IP lokal di dalam router/Wi-Fi/LAN. IP ini tidak bisa dilacak lokasi geografisnya karena dipakai jutaan router di seluruh dunia. Gunakan IP Publik Anda untuk melacak koneksi internet.` };
+            }
+            if (a === 100 && b >= 64 && b <= 127) {
+                return { isSpecial: true, label: 'IP Carrier-Grade NAT / CGNAT (RFC 6598)', desc: `Alamat ${ip} adalah IP internal milik operator seluler/ISP (CGNAT) sebelum keluar ke internet publik.` };
+            }
+            if (a === 127) {
+                return { isSpecial: true, label: 'Loopback / Localhost (RFC 1122)', desc: `Alamat ${ip} merujuk ke perangkat Anda sendiri (localhost).` };
+            }
+            if (a === 169 && b === 254) {
+                return { isSpecial: true, label: 'APIPA / Link-Local (RFC 3927)', desc: `Alamat ${ip} diberikan otomatis saat perangkat gagal mendapatkan IP dari server DHCP router.` };
+            }
+            return { isSpecial: false };
+        }
+
+        /**
+         * Handler Pencarian Cerdas (IP maupun Domain)
+         */
+        async function handleSmartQuery(rawQuery) {
+            const parsed = parseUserInput(rawQuery);
+            document.getElementById('domain-dns-panel').classList.add('hidden');
+
+            if (parsed.type === 'invalid') {
+                showBanner('Input tidak dikenali sebagai alamat IPv4, IPv6, maupun nama domain yang valid.', 'error');
+                return;
+            }
+
+            // Jika input dibersihkan dari teks kotor, perbarui kotak input agar rapi
+            if (parsed.value !== rawQuery) {
+                document.getElementById('ip-input').value = parsed.value;
+                showToast(`Input otomatis dibersihkan menjadi: ${parsed.value}`, 'info');
+            }
+
+            if (parsed.type === 'domain') {
+                await resolveDomainAndLookup(parsed.value);
+                return;
+            }
+
+            // Cek apakah IP lokal/khusus
+            const specialCheck = checkSpecialIP(parsed.value);
+            if (specialCheck.isSpecial) {
+                renderSpecialIPState(parsed.value, specialCheck);
+                return;
+            }
+
+            await lookupIPMultiSource(parsed.value, false);
+        }
+
+        /**
+         * Resolusi Domain ke IPv4 (A) & IPv6 (AAAA) menggunakan Cloudflare & Google DoH
+         */
+        async function resolveDomainAndLookup(domain) {
+            setLoadingState(true);
+            hideBanner();
+
+            try {
+                const queryDoH = async (name, type) => {
+                    // Coba Cloudflare DoH terlebih dahulu (sangat ramah CORS), lalu Google DoH
+                    try {
+                        const cf = await fetchWithTimeout(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(name)}&type=${type}`, 4000, {
+                            headers: { 'Accept': 'application/dns-json' }
+                        });
+                        if (cf.ok) return await cf.json();
+                    } catch (_) {}
+
+                    try {
+                        const gg = await fetchWithTimeout(`https://dns.google/resolve?name=${encodeURIComponent(name)}&type=${type}`, 4000);
+                        if (gg.ok) return await gg.json();
+                    } catch (_) {}
+
+                    return null;
+                };
+
+                const [resA, resAAAA] = await Promise.all([
+                    queryDoH(domain, 'A'),
+                    queryDoH(domain, 'AAAA')
+                ]);
+
+                const ipv4Records = (resA?.Answer || []).filter(a => a.type === 1).map(a => a.data);
+                const ipv6Records = (resAAAA?.Answer || []).filter(a => a.type === 28).map(a => a.data);
+                const allIps = [...new Set([...ipv4Records, ...ipv6Records])];
+
+                if (allIps.length === 0) {
+                    showBanner(`Domain "${domain}" tidak ditemukan atau resolusi DNS diblokir oleh jaringan/preview Anda.`, 'error');
+                    setLoadingState(false);
+                    return;
+                }
+
+                // Tampilkan chip semua IP hasil resolusi DNS
+                const dnsPanel = document.getElementById('domain-dns-panel');
+                const chipsContainer = document.getElementById('resolved-ip-chips');
+                document.getElementById('resolved-domain-name').textContent = domain;
+                dnsPanel.classList.remove('hidden');
+
+                chipsContainer.innerHTML = allIps.map((ip, idx) => `
+                    <button type="button" onclick="lookupIPMultiSource('${ip}', false, '${domain}')" class="px-3 py-1.5 rounded-lg text-xs font-mono border transition flex items-center gap-1.5 ${idx === 0 ? 'bg-cyan-500/20 border-cyan-500/50 text-cyan-300' : 'bg-slate-900 border-slate-700 text-slate-300 hover:border-cyan-500/40'}">
+                        <span class="text-[10px] px-1 rounded bg-slate-800 text-slate-400">${ip.includes(':') ? 'AAAA' : 'A'}</span>
+                        <span>${ip}</span>
+                    </button>
+                `).join('');
+
+                // Langsung lacak IP pertama
+                await lookupIPMultiSource(allIps[0], false, domain);
+
+            } catch (err) {
+                showBanner(`Gagal melakukan resolusi DNS untuk domain ${domain}.`, 'error');
+                setLoadingState(false);
+            }
+        }
+
+        /**
+         * Helper Fetch dengan Timeout ketat agar tidak pernah hang
+         */
+        async function fetchWithTimeout(url, timeoutMs = 4500, options = {}) {
+            const controller = new AbortController();
+            const id = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                const response = await fetch(url, { ...options, signal: controller.signal });
+                clearTimeout(id);
+                return response;
+            } catch (err) {
+                clearTimeout(id);
+                throw err;
+            }
+        }
+
+        /**
+         * Mesin Verifikasi Silang Multi-Sumber dengan Resilient Waterfall & Offline Fallback
+         */
+        async function lookupIPMultiSource(targetIP = '', isSelf = false, resolvedFromDomain = null) {
+            setLoadingState(true);
+            hideBanner();
+
+            try {
+                let exactIP = (targetIP || '').trim();
+                let sourceA = null;
+
+                // Langkah 1: Sumber Utama (ipwho.is - CORS terbuka & tanpa rate limit ketat)
+                const urlA = exactIP ? `https://ipwho.is/${encodeURIComponent(exactIP)}` : `https://ipwho.is/`;
+                try {
+                    const resA = await fetchWithTimeout(urlA, 4500);
+                    if (resA.ok) {
+                        const jsonA = await resA.json();
+                        if (jsonA && jsonA.success) {
+                            sourceA = jsonA;
+                            if (!exactIP && jsonA.ip) exactIP = jsonA.ip;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Source A (ipwho.is) dilewati:', e.message);
+                }
+
+                // Jika deteksi IP diri sendiri belum dapat IP dari ipwho.is, coba api64.ipify.org atau freeipapi.com
+                if (!exactIP) {
+                    try {
+                        const ipifyRes = await fetchWithTimeout('https://api64.ipify.org?format=json', 3500);
+                        if (ipifyRes.ok) {
+                            const ipifyJson = await ipifyRes.json();
+                            if (ipifyJson?.ip) exactIP = ipifyJson.ip;
+                        }
+                    } catch (_) {}
+                }
+
+                if (!exactIP) {
+                    try {
+                        const freeSelf = await fetchWithTimeout('https://freeipapi.com/api/json', 3500);
+                        if (freeSelf.ok) {
+                            const freeJson = await freeSelf.json();
+                            if (freeJson?.ipAddress) exactIP = freeJson.ipAddress;
+                        }
+                    } catch (_) {}
+                }
+
+                // Jika masih kosong (misal mode offline total), fallback ke 8.8.8.8 untuk demo
+                if (!exactIP) {
+                    exactIP = '8.8.8.8';
+                    isSelf = false;
+                    showBanner('Koneksi internet/API luar dibatasi oleh browser preview. Menampilkan data contoh bawaan (8.8.8.8).', 'warning');
+                }
+
+                // Cek kembali apakah IP hasil deteksi termasuk spesial
+                const specialCheck = checkSpecialIP(exactIP);
+                if (specialCheck.isSpecial) {
+                    renderSpecialIPState(exactIP, specialCheck);
+                    setLoadingState(false);
+                    return;
+                }
+
+                // Langkah 2: Kueri paralel independen ke Sumber B (freeipapi.com / api.ip.sb) & RIPEstat BGP
+                const [sourceB, ripeNetworkInfo, ripePrefixOverview, ptrRecord] = await Promise.all([
+                    fetchSecondaryGeoSource(exactIP),
+                    fetchWithTimeout(`https://stat.ripe.net/data/network-info/data.json?resource=${encodeURIComponent(exactIP)}`, 4500)
+                        .then(r => (r.ok ? r.json() : null))
+                        .then(d => d?.data || null)
+                        .catch(() => null),
+                    fetchWithTimeout(`https://stat.ripe.net/data/rir/data.json?resource=${encodeURIComponent(exactIP)}`, 4500)
+                        .then(r => (r.ok ? r.json() : null))
+                        .then(d => d?.data || null)
+                        .catch(() => null),
+                    fetchReverseDNS(exactIP)
+                ]);
+
+                // Langkah 3: Jika semua API eksternal gagal/diblokir sandbox, cek Built-in Offline Dataset
+                if (!sourceA && !sourceB && !ripeNetworkInfo) {
+                    const offlineRecord = BUILTIN_OFFLINE_DB[exactIP];
+                    if (offlineRecord) {
+                        const offlineSynthesized = buildOfflineFallbackData(offlineRecord, isSelf, resolvedFromDomain);
+                        currentData = offlineSynthesized;
+                        updateUI(offlineSynthesized);
+                        saveToHistory(offlineSynthesized);
+                        showBanner('Akses API eksternal diblokir oleh sandbox preview. Menggunakan Database Bawaan (Offline Mode).', 'warning');
+                        return;
+                    }
+                    throw new Error(`Tidak dapat menjangkau server API Geolocation/BGP untuk IP ${exactIP}. Periksa koneksi internet atau coba tombol Uji Akurasi.`);
+                }
+
+                // Langkah 4: Gabungkan & hitung konsensus akurasi antar sumber
+                const synthesized = synthesizeMultiSourceData({
+                    ip: exactIP,
+                    isSelf,
+                    resolvedFromDomain,
+                    sourceA,
+                    sourceB,
+                    ripeNetworkInfo,
+                    ripePrefixOverview,
+                    ptrRecord
+                });
+
+                currentData = synthesized;
+                updateUI(synthesized);
+                saveToHistory(synthesized);
+
+            } catch (error) {
+                console.error(error);
+                showBanner(error.message || 'Terjadi kesalahan saat memverifikasi data IP & ASN.', 'error');
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        /**
+         * Sumber Geolocation Cadangan (freeipapi.com -> fallback api.ip.sb)
+         */
+        async function fetchSecondaryGeoSource(ip) {
+            try {
+                const res1 = await fetchWithTimeout(`https://freeipapi.com/api/json/${encodeURIComponent(ip)}`, 4000);
+                if (res1.ok) {
+                    const d = await res1.json();
+                    if (d && d.ipAddress) {
+                        return {
+                            provider: 'freeipapi.com',
+                            country_name: d.countryName,
+                            country_code: d.countryCode,
+                            region: d.regionName,
+                            city: d.cityName,
+                            postal: d.zipCode,
+                            latitude: typeof d.latitude === 'number' ? d.latitude : parseFloat(d.latitude),
+                            longitude: typeof d.longitude === 'number' ? d.longitude : parseFloat(d.longitude),
+                            timezone: Array.isArray(d.timeZones) ? d.timeZones[0] : 'UTC',
+                            currency: d.currency?.code || '-',
+                            asn: null,
+                            org: null
+                        };
+                    }
+                }
+            } catch (_) {}
+
+            try {
+                const res2 = await fetchWithTimeout(`https://api.ip.sb/geoip/${encodeURIComponent(ip)}`, 4000);
+                if (res2.ok) {
+                    const d = await res2.json();
+                    if (d && d.ip) {
+                        return {
+                            provider: 'api.ip.sb',
+                            country_name: d.country,
+                            country_code: d.country_code,
+                            region: d.region,
+                            city: d.city,
+                            postal: d.postal_code || '-',
+                            latitude: d.latitude,
+                            longitude: d.longitude,
+                            timezone: d.timezone || 'UTC',
+                            currency: '-',
+                            asn: d.asn ? `AS${d.asn}` : null,
+                            org: d.asn_organization || d.organization || null
+                        };
+                    }
+                }
+            } catch (_) {}
+
+            return null;
+        }
+
+        function buildOfflineFallbackData(rec, isSelf, resolvedFromDomain) {
+            return {
+                ...rec,
+                type: rec.ip.includes(':') ? 'IPv6' : 'IPv4',
+                isSelf,
+                resolvedFromDomain,
+                networkClass: 'Cloud / Datacenter / Anycast CDN',
+                isAnycastOrCloud: true,
+                isMobileCarrier: false,
+                sourceACoords: [rec.latitude, rec.longitude],
+                sourceBCoords: null,
+                sourceACity: rec.city,
+                sourceBCity: '-',
+                diffKm: null,
+                accuracyLevel: 'virtual',
+                accuracyBadgeText: 'Database Bawaan (Offline Mode)',
+                radiusMeters: 5000,
+                radiusLabel: '± 5 km (Anycast Edge / HQ)',
+                explanation: `Data untuk <strong>${rec.ip}</strong> (${rec.isp}) dimuat dari database cadangan bawaan karena koneksi API eksternal sedang dibatasi oleh browser/preview.`,
+                comparisonRows: [
+                    {
+                        source: 'Built-in Fallback DB',
+                        location: `${rec.city}, ${rec.countryCode}`,
+                        asnOrg: `${rec.asn} • ${rec.isp}`,
+                        coords: `${rec.latitude.toFixed(4)}, ${rec.longitude.toFixed(4)}`,
+                        ok: true
+                    }
+                ]
+            };
+        }
+
+        /**
+         * Reverse DNS (PTR Lookup) via Cloudflare & Google DNS-over-HTTPS
+         */
+        async function fetchReverseDNS(ip) {
+            try {
+                if (!ip || !ip.includes('.')) return null;
+                const arpaName = ip.split('.').reverse().join('.') + '.in-addr.arpa';
+
+                try {
+                    const cfRes = await fetchWithTimeout(`https://cloudflare-dns.com/dns-query?name=${arpaName}&type=PTR`, 3500, {
+                        headers: { 'Accept': 'application/dns-json' }
+                    });
+                    if (cfRes.ok) {
+                        const cfData = await cfRes.json();
+                        if (cfData?.Answer?.length > 0) {
+                            return cfData.Answer[0].data.replace(/\.$/, '');
+                        }
+                    }
+                } catch (_) {}
+
+                const res = await fetchWithTimeout(`https://dns.google/resolve?name=${arpaName}&type=PTR`, 3500);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data?.Answer?.length > 0) {
+                        return data.Answer[0].data.replace(/\.$/, '');
+                    }
+                }
+                return null;
+            } catch {
+                return null;
+            }
+        }
+
+        /**
+         * Hitung Jarak Haversine (km) antara 2 koordinat untuk mengukur selisih antar sumber
+         */
+        function calculateDistanceKm(lat1, lon1, lat2, lon2) {
+            if ([lat1, lon1, lat2, lon2].some(v => typeof v !== 'number' || isNaN(v))) return null;
+            const R = 6371;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        /**
+         * Sintesis & Evaluasi Akurasi Multi-Sumber (Inti Sistem Anti-Nyasar)
+         */
+        function synthesizeMultiSourceData({ ip, isSelf, resolvedFromDomain, sourceA, sourceB, ripeNetworkInfo, ripePrefixOverview, ptrRecord }) {
+            const primary = sourceA || sourceB;
+            const isIpv6 = ip.includes(':');
+
+            // Ambil ASN paling otoritatif (RIPEstat BGP -> Source A -> Source B)
+            const ripeAsn = ripeNetworkInfo?.asns?.[0] ? `AS${ripeNetworkInfo.asns[0]}` : null;
+            const asnA = sourceA?.connection?.asn ? `AS${sourceA.connection.asn}` : null;
+            const asnB = sourceB?.asn || null;
+            const finalAsn = ripeAsn || asnA || asnB || 'Tidak Diketahui';
+
+            // Ambil BGP Prefix & RIR dari RIPEstat
+            const bgpPrefix = ripeNetworkInfo?.prefix || 'Tidak Diumumkan (Unannounced)';
+            const rirName = ripePrefixOverview?.rirs?.[0]?.rir || 'GLOBAL';
+
+            // ISP & Organisasi
+            const isp = sourceA?.connection?.isp || sourceB?.org || sourceA?.connection?.org || 'Tidak Diketahui';
+            const org = sourceA?.connection?.org || sourceB?.org || isp;
+            const domain = sourceA?.connection?.domain || '-';
+
+            // Lokasi Utama
+            const country = sourceA?.country || sourceB?.country_name || '-';
+            const countryCode = sourceA?.country_code || sourceB?.country_code || '';
+            const region = sourceA?.region || sourceB?.region || '-';
+            const city = sourceA?.city || sourceB?.city || '-';
+            const postal = sourceA?.postal || sourceB?.postal || '-';
+            const continent = sourceA?.continent || sourceB?.continent_code || '-';
+
+            // Koordinat dari masing-masing sumber
+            const latA = sourceA?.latitude;
+            const lonA = sourceA?.longitude;
+            const latB = sourceB?.latitude;
+            const lonB = sourceB?.longitude;
+
+            const hasCoordA = typeof latA === 'number' && typeof lonA === 'number';
+            const hasCoordB = typeof latB === 'number' && typeof lonB === 'number';
+
+            // Hitung titik konsensus (rata-rata jika keduanya dekat, atau pilih sumber utama jika jauh)
+            let consensusLat = hasCoordA ? latA : latB;
+            let consensusLon = hasCoordA ? lonA : lonB;
+            const diffKm = (hasCoordA && hasCoordB) ? calculateDistanceKm(latA, lonA, latB, lonB) : null;
+
+            if (diffKm !== null && diffKm <= 35) {
+                consensusLat = (latA + latB) / 2;
+                consensusLon = (lonA + lonB) / 2;
+            }
+
+            // Klasifikasi Tipe Jaringan (Cloud/Anycast vs Mobile vs Residential ISP)
+            const combinedText = `${isp} ${org} ${ptrRecord || ''}`.toLowerCase();
+            let networkClass = 'Residential / Enterprise ISP';
+            let isAnycastOrCloud = false;
+            let isMobileCarrier = false;
+
+            if (/cloudflare|google|amazon|aws|microsoft|azure|akamai|fastly|digitalocean|linode|vultr|ovh|alibaba|tencent|oracle|hetzner/.test(combinedText)) {
+                networkClass = 'Cloud / Datacenter / Anycast CDN';
+                isAnycastOrCloud = true;
+            } else if (/telkomsel|indosat|xl axiata|smartfren|tri|three|hutchison|cellular|mobile|wireless|4g|5g|lte/.test(combinedText)) {
+                networkClass = 'Mobile Carrier / Seluler (CGNAT)';
+                isMobileCarrier = true;
+            } else if (/vpn|proxy|tor|mullvad|nord|expressvpn|surfshark|hosting/.test(combinedText)) {
+                networkClass = 'VPN / Proxy / Hosting';
+                isAnycastOrCloud = true;
+            }
+
+            // Tentukan Skor Akurasi, Radius Estimasi, dan Penjelasan Anti-Nyasar
+            let accuracyLevel = 'high'; // high | medium | low | virtual
+            let accuracyBadgeText = 'Akurasi Tinggi (Konsensus Terverifikasi)';
+            let radiusMeters = 8000;
+            let radiusLabel = '± 8 km (Level Kota / POP)';
+            let explanation = '';
+
+            if (isAnycastOrCloud) {
+                accuracyLevel = 'virtual';
+                accuracyBadgeText = 'Server Cloud / Anycast (Lokasi Virtual)';
+                radiusMeters = 5000;
+                radiusLabel = '± 5 km (Lokasi Datacenter / Edge POP)';
+                explanation = `IP ini milik infrastruktur <strong>${isp}</strong> (${networkClass}). Alamat IP Anycast/Cloud tidak berada di satu tempat fisik tunggal, melainkan diarahkan ke server terdekat atau kantor pusat terdaftarnya.`;
+            } else if (isMobileCarrier) {
+                accuracyLevel = 'low';
+                accuracyBadgeText = 'Jaringan Seluler (Lokasi Gateway Operator)';
+                radiusMeters = 35000;
+                radiusLabel = '± 35 km (Gateway Regional Operator)';
+                explanation = `IP ini digunakan oleh operator seluler (<strong>${isp}</strong>). Pada jaringan 4G/5G, lokasi yang tampil adalah <strong>Gateway Internet (GGSN/PGW)</strong> regional operator—misalnya pengguna di Jawa Barat sering terdeteksi di Jakarta atau Bandung.`;
+            } else if (diffKm !== null && diffKm <= 25) {
+                accuracyLevel = 'high';
+                accuracyBadgeText = `Akurasi Tinggi (Selisih 2 Sumber: ${diffKm.toFixed(1)} km)`;
+                radiusMeters = 5000;
+                radiusLabel = '± 5 km (Area Kota / Sentral ISP)';
+                explanation = `Kedua database geolocation sepakat pada area kota <strong>${city}, ${region}</strong> (selisih hanya ${diffKm.toFixed(1)} km). Titik peta menunjukkan pusat distribusi/POP milik <strong>${isp}</strong>.`;
+            } else if (diffKm !== null && diffKm > 25) {
+                accuracyLevel = 'medium';
+                accuracyBadgeText = `Akurasi Sedang (Selisih Antar Sumber: ${Math.round(diffKm)} km)`;
+                radiusMeters = 25000;
+                radiusLabel = '± 25 km (Perbedaan Database POP vs HQ)';
+                explanation = `Sumber A mendeteksi lokasi di <strong>${sourceA?.city || '-'}</strong> sedangkan Sumber B di <strong>${sourceB?.city || '-'}</strong> (selisih ${Math.round(diffKm)} km). Hal ini wajar terjadi ketika satu database mencatat lokasi gateway lokal dan database lain mencatat kantor pusat ISP.`;
+            } else {
+                accuracyLevel = 'medium';
+                accuracyBadgeText = 'Terverifikasi Registry RIR & 1 Sumber Geo';
+                radiusMeters = 12000;
+                radiusLabel = '± 12 km (Level Kota)';
+                explanation = `Data routing diverifikasi melalui registry <strong>${rirName} (${bgpPrefix})</strong>. Koordinat mengarah ke sentral layanan <strong>${isp}</strong> di wilayah ${city}.`;
+            }
+
+            // Susun baris matriks perbandingan
+            const secondProviderLabel = sourceB?.provider ? `Sumber B (${sourceB.provider})` : 'Sumber B (Geo Cadangan)';
+            const comparisonRows = [
+                {
+                    source: 'Sumber A (ipwho.is)',
+                    location: sourceA ? `${sourceA.city || '-'}, ${sourceA.country_code || '-'}` : 'Tidak Tersedia',
+                    asnOrg: sourceA ? `${asnA || '-'} • ${sourceA.connection?.isp || '-'}` : '-',
+                    coords: hasCoordA ? `${latA.toFixed(4)}, ${lonA.toFixed(4)}` : '-',
+                    ok: !!sourceA
+                },
+                {
+                    source: secondProviderLabel,
+                    location: sourceB ? `${sourceB.city || '-'}, ${sourceB.country_code || '-'}` : 'Tidak Tersedia',
+                    asnOrg: sourceB ? `${asnB || finalAsn} • ${sourceB.org || isp}` : '-',
+                    coords: hasCoordB ? `${latB.toFixed(4)}, ${lonB.toFixed(4)}` : '-',
+                    ok: !!sourceB
+                },
+                {
+                    source: `Registry BGP (${rirName})`,
+                    location: `Prefix: ${bgpPrefix}`,
+                    asnOrg: ripeAsn ? `${ripeAsn} (Otoritatif RIR)` : 'Tidak Ditemukan',
+                    coords: ptrRecord ? `PTR: ${ptrRecord}` : 'BGP Routing Table',
+                    ok: !!ripeNetworkInfo
+                }
+            ];
+
+            return {
+                ip,
+                type: isIpv6 ? 'IPv6' : 'IPv4',
+                isSelf,
+                resolvedFromDomain,
+                ptrRecord,
+                asn: finalAsn,
+                bgpPrefix,
+                rirName,
+                isp,
+                org,
+                domain,
+                networkClass,
+                isAnycastOrCloud,
+                isMobileCarrier,
+                continent,
+                country,
+                countryCode,
+                region,
+                city,
+                postal,
+                latitude: consensusLat,
+                longitude: consensusLon,
+                sourceACoords: hasCoordA ? [latA, lonA] : null,
+                sourceBCoords: hasCoordB ? [latB, lonB] : null,
+                sourceACity: sourceA?.city || 'Sumber A',
+                sourceBCity: sourceB?.city || 'Sumber B',
+                diffKm,
+                accuracyLevel,
+                accuracyBadgeText,
+                radiusMeters,
+                radiusLabel,
+                explanation,
+                timezoneId: sourceA?.timezone?.id || sourceB?.timezone || 'UTC',
+                utcOffset: sourceA?.timezone?.utc || sourceB?.utc_offset || 'UTC',
+                callingCode: sourceA?.calling_code ? `+${sourceA.calling_code}` : (sourceB?.country_calling_code || '-'),
+                currency: sourceA?.currency?.code || sourceB?.currency || '-',
+                comparisonRows
+            };
+        }
+
+        /**
+         * Tampilan Khusus Jika User Memasukkan IP Privat / CGNAT / Localhost
+         */
+        function renderSpecialIPState(ip, info) {
+            document.getElementById('res-ip').textContent = ip;
+            document.getElementById('ip-version-badge').textContent = ip.includes(':') ? 'IPv6' : 'IPv4';
+            
+            const srcBadge = document.getElementById('ip-source-badge');
+            srcBadge.textContent = 'Jaringan Lokal / Non-Publik';
+            srcBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/30';
+
+            const accBadge = document.getElementById('accuracy-score-badge');
+            accBadge.innerHTML = `<i class="fa-solid fa-house-laptop text-amber-400"></i><span>${info.label}</span>`;
+            accBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1.5';
+
+            document.getElementById('accuracy-explanation-text').innerHTML = `<strong>Perhatian (Anti-Nyasar):</strong> ${info.desc}`;
+            document.getElementById('res-ptr').innerHTML = `<i class="fa-solid fa-arrow-right-arrow-left text-slate-500"></i><span>rDNS / PTR: <span class="text-amber-300">Lokal / Internal Router</span></span>`;
+            
+            // Kartu Terpadu (ASN + Lokasi Kota + ISP)
+            document.getElementById('unified-city-country').textContent = 'Jaringan Lokal (LAN)';
+            document.getElementById('unified-region-postal').textContent = 'Tidak memiliki wilayah geografis publik';
+            document.getElementById('res-coords').textContent = 'Non-Routable';
+            document.getElementById('res-utc-offset').textContent = 'LOCAL';
+
+            document.getElementById('res-asn').textContent = 'N/A (Lokal)';
+            document.getElementById('res-rir').textContent = 'IANA RFC';
+            document.getElementById('res-bgp-prefix').textContent = 'Prefix: Tidak Diumumkan';
+            document.getElementById('res-timezone').textContent = 'Local Interface';
+            document.getElementById('res-localtime').textContent = '-';
+
+            document.getElementById('res-isp').textContent = info.label;
+            document.getElementById('res-org').textContent = 'Internal Network Interface';
+            document.getElementById('res-net-class').textContent = 'Non-Routable IP';
+            document.getElementById('res-asn-domain').textContent = 'Private Block';
+            document.getElementById('res-radius').textContent = 'Tidak Berlaku';
+
+            document.getElementById('comparison-table-body').innerHTML = `
+                <tr>
+                    <td colspan="5" class="py-4 text-center text-amber-400">IP Privat/Lokal tidak memiliki catatan routing BGP maupun lokasi geografis di internet publik.</td>
+                </tr>
+            `;
+
+            showBanner(`${info.label}: Klik tombol "Deteksi IP Saya" di pojok kanan atas untuk melihat IP Publik internet Anda.`, 'warning');
+        }
+
+        /**
+         * Memperbarui Seluruh Antarmuka dengan Data Hasil Sintesis
+         */
+        function updateUI(data) {
+            document.getElementById('res-ip').textContent = data.ip;
+            
+            const verBadge = document.getElementById('ip-version-badge');
+            verBadge.textContent = data.type;
+            verBadge.className = data.type === 'IPv6'
+                ? 'px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                : 'px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30';
+
+            const srcBadge = document.getElementById('ip-source-badge');
+            if (data.isSelf) {
+                srcBadge.textContent = 'IP Perangkat Anda';
+                srcBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+            } else if (data.resolvedFromDomain) {
+                srcBadge.textContent = `Domain: ${data.resolvedFromDomain}`;
+                srcBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-mono font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-500/30';
+            } else {
+                srcBadge.textContent = 'Target Pencarian';
+                srcBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30';
+            }
+
+            // Badge Skor Akurasi
+            const accBadge = document.getElementById('accuracy-score-badge');
+            const badgeStyles = {
+                high: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+                medium: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+                low: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+                virtual: 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+            };
+            accBadge.className = `px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold border flex items-center gap-1.5 ${badgeStyles[data.accuracyLevel] || badgeStyles.medium}`;
+            accBadge.innerHTML = `<i class="fa-solid fa-crosshairs"></i><span>${data.accuracyBadgeText}</span>`;
+
+            // Penjelasan Anti-Nyasar & PTR
+            document.getElementById('accuracy-explanation-text').innerHTML = data.explanation;
+            document.getElementById('res-ptr').innerHTML = `<i class="fa-solid fa-arrow-right-arrow-left text-slate-500"></i><span>rDNS / PTR: <span class="text-cyan-300">${data.ptrRecord || 'Tidak ada PTR record'}</span></span>`;
+
+            // KARTU TERPADU: 1. Lokasi Kota & Negara
+            const flagEmoji = getFlagEmoji(data.countryCode);
+            document.getElementById('unified-city-country').innerHTML = `${flagEmoji} ${data.city}, ${data.country}`;
+            document.getElementById('unified-region-postal').textContent = `${data.region} • Kode Pos: ${data.postal} (${data.continent})`;
+            document.getElementById('res-radius').textContent = data.radiusLabel;
+
+            const hasCoords = typeof data.latitude === 'number' && typeof data.longitude === 'number';
+            const coordStr = hasCoords ? `${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}` : 'Tidak Tersedia';
+            document.getElementById('res-coords').textContent = coordStr;
+            document.getElementById('res-utc-offset').textContent = `UTC ${data.utcOffset}`;
+
+            // KARTU TERPADU: 2. ASN, BGP & Zona Waktu
+            document.getElementById('res-asn').textContent = data.asn;
+            document.getElementById('res-rir').textContent = data.rirName;
+            document.getElementById('res-bgp-prefix').textContent = `BGP: ${data.bgpPrefix}`;
+            document.getElementById('res-timezone').textContent = data.timezoneId;
+
+            try {
+                const localTimeFormatted = new Intl.DateTimeFormat('id-ID', {
+                    timeZone: data.timezoneId,
+                    hour: '2-digit',
+                    minute: '2-digit'
+                }).format(new Date());
+                document.getElementById('res-localtime').textContent = `${localTimeFormatted} WIB/Lokal`;
+            } catch {
+                document.getElementById('res-localtime').textContent = '-';
+            }
+
+            // KARTU TERPADU: 3. ISP & Organisasi
+            const ispEl = document.getElementById('res-isp');
+            ispEl.textContent = data.isp;
+            ispEl.title = data.isp;
+            document.getElementById('res-org').textContent = data.org !== data.isp ? data.org : 'Organisasi Terdaftar';
+            document.getElementById('res-net-class').textContent = data.networkClass;
+            document.getElementById('res-asn-domain').textContent = data.domain !== '-' ? data.domain : data.rirName;
+
+            // Perbarui Modul VPN Tunnel Regional sesuai kota & ASN target
+            updateRegionalVpnModule(data);
+
+            // Render Tabel Perbandingan Multi-Sumber
+            const tbody = document.getElementById('comparison-table-body');
+            tbody.innerHTML = data.comparisonRows.map(row => `
+                <tr class="hover:bg-slate-900/50 transition">
+                    <td class="py-2.5 px-3 font-semibold text-slate-200 whitespace-nowrap">${row.source}</td>
+                    <td class="py-2.5 px-3 text-slate-300">${row.location}</td>
+                    <td class="py-2.5 px-3 text-slate-400 max-w-[200px] truncate" title="${row.asnOrg}">${row.asnOrg}</td>
+                    <td class="py-2.5 px-3 text-cyan-400 whitespace-nowrap">${row.coords}</td>
+                    <td class="py-2.5 px-3 whitespace-nowrap">
+                        ${row.ok
+                            ? '<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px]">Terverifikasi</span>'
+                            : '<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px]">Dilewati</span>'}
+                    </td>
+                </tr>
+            `).join('');
+
+            // Update Peta Interaktif dengan Radius Akurasi & Marker Pembanding (atau Fallback Radar)
+            if (hasCoords) {
+                document.getElementById('gmaps-link').href = `https://www.google.com/maps?q=${data.latitude},${data.longitude}`;
+
+                if (map && mapLayerGroup && typeof L !== 'undefined') {
+                    mapLayerGroup.clearLayers();
+                    const latLng = [data.latitude, data.longitude];
+
+                    // Lingkaran Radius Akurasi
+                    L.circle(latLng, {
+                        color: '#06B6D4',
+                        fillColor: '#06B6D4',
+                        fillOpacity: 0.14,
+                        weight: 1.5,
+                        radius: data.radiusMeters
+                    }).addTo(mapLayerGroup);
+
+                    // Marker Utama (Konsensus)
+                    L.marker(latLng).addTo(mapLayerGroup)
+                        .bindPopup(`
+                            <div style="font-family: Inter, sans-serif; min-width: 180px;">
+                                <strong style="font-size: 13px;">${data.ip}</strong><br>
+                                <span style="color: #0284c7; font-weight: 600;">${data.city}, ${data.country}</span><br>
+                                <small>${data.asn} • ${data.isp}</small><br>
+                                <small style="color: #64748b;">Radius: ${data.radiusLabel}</small>
+                            </div>
+                        `)
+                        .openPopup();
+
+                    // Jika Sumber A dan Sumber B berbeda jauh (> 25 km), tampilkan titik pembanding kedua
+                    if (data.diffKm !== null && data.diffKm > 25 && data.sourceACoords && data.sourceBCoords) {
+                        const altCoords = data.sourceBCoords;
+                        L.circleMarker(altCoords, {
+                            radius: 7,
+                            color: '#F59E0B',
+                            fillColor: '#F59E0B',
+                            fillOpacity: 0.85
+                        }).addTo(mapLayerGroup)
+                          .bindPopup(`<b>Lokasi Alternatif (Sumber B)</b><br>${data.sourceBCity}<br><small>Selisih ${Math.round(data.diffKm)} km dari Sumber A</small>`);
+                        
+                        const bounds = L.latLngBounds([latLng, altCoords]);
+                        map.fitBounds(bounds, { padding: [45, 45], maxZoom: 11 });
+                    } else {
+                        const zoomLevel = data.radiusMeters >= 30000 ? 9 : (data.radiusMeters >= 15000 ? 10 : 12);
+                        map.setView(latLng, zoomLevel);
+                    }
+                    setTimeout(() => map.invalidateSize(), 150);
+                } else {
+                    renderFallbackRadarMap(data.latitude, data.longitude, `${data.city}, ${data.country}`, `${data.asn} • ${data.isp} (${data.radiusLabel})`);
+                }
+            }
+        }
+
+        /**
+         * ============================================================================
+         * MODUL SMART REGIONAL VPN TUNNEL & CONFIG GENERATOR
+         * ============================================================================
+         */
+        function scrollToVpnPanel() {
+            const card = document.getElementById('vpn-tunnel-card');
+            if (card) {
+                card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                if (!vpnConnected) {
+                    toggleVpnConnection();
+                }
+            }
+        }
+
+        function updateRegionalVpnModule(data) {
+            const flag = getFlagEmoji(data.countryCode);
+            const cleanCitySlug = (data.city || 'region').toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-');
+            const cleanCountrySlug = (data.countryCode || 'xx').toLowerCase();
+            const cleanAsnSlug = (data.asn || 'as0').toLowerCase();
+            const gatewayEndpoint = `${cleanCitySlug}-${cleanAsnSlug}.${cleanCountrySlug}.vpn.nettrace.io`;
+
+            // Jika user sedang terhubung ke lokasi lama lalu mencari kota baru, putuskan sesi lama agar sinkron
+            if (vpnConnected) {
+                vpnConnected = false;
+                refreshVpnConnectionUI(data);
+            }
+
+            document.getElementById('vpn-target-city-label').textContent = `${flag} ${data.city}, ${data.countryCode} (${data.asn})`;
+            document.getElementById('vpn-target-gateway-ip').textContent = `Node: ${gatewayEndpoint}:51820`;
+
+            // Buat kunci dummy deterministik untuk contoh konfigurasi siap pakai
+            const pseudoKeyA = btoa(`NT-PRIV-${data.ip}-${data.asn}`).slice(0, 42) + '==';
+            const pseudoKeyB = btoa(`NT-PUB-${data.city}-${data.countryCode}`).slice(0, 42) + '==';
+
+            generatedVpnProfiles = {
+                gatewayHost: gatewayEndpoint,
+                filename: `nettrace-${cleanCountrySlug}-${cleanCitySlug}-${cleanAsnSlug}.conf`,
+                wireguard: [
+                    `# Profil WireGuard Regional - Target: ${data.city}, ${data.country} (${data.asn})`,
+                    `# ISP / Backbone: ${data.isp} | Prefix: ${data.bgpPrefix}`,
+                    `[Interface]`,
+                    `PrivateKey = ${pseudoKeyA}`,
+                    `Address = 10.88.${Math.abs(data.ip.charCodeAt(0) % 250)}.2/32, fd86:ea04:1115::2/128`,
+                    `DNS = 1.1.1.1, 8.8.8.8`,
+                    `MTU = 1420`,
+                    ``,
+                    `[Peer]`,
+                    `PublicKey = ${pseudoKeyB}`,
+                    `Endpoint = ${gatewayEndpoint}:51820`,
+                    `AllowedIPs = 0.0.0.0/0, ::/0`,
+                    `PersistentKeepalive = 25`
+                ].join('\n'),
+                openvpn: [
+                    `# Profil OpenVPN UDP Regional - ${data.city}, ${data.country} (${data.asn})`,
+                    `client`,
+                    `dev tun`,
+                    `proto udp`,
+                    `remote ${gatewayEndpoint} 1194`,
+                    `resolv-retry infinite`,
+                    `nobind`,
+                    `persist-key`,
+                    `persist-tun`,
+                    `cipher AES-256-GCM`,
+                    `auth SHA256`,
+                    `remote-cert-tls server`,
+                    `verb 3`,
+                    `# Target Exit POP: ${data.city} (${data.latitude}, ${data.longitude})`
+                ].join('\n'),
+                socks5: [
+                    `# Quick Proxy URI & SSH Tunnel ke Gateway ${data.city} (${data.asn})`,
+                    `SOCKS5 URI : socks5h://nettrace_client@${gatewayEndpoint}:1080`,
+                    `HTTP Proxy : http://${gatewayEndpoint}:8080`,
+                    `SSH Tunnel : ssh -D 1080 -C -q -N tunnel@${gatewayEndpoint}`,
+                    `Target IP  : ${data.ip} (${data.bgpPrefix})`
+                ].join('\n')
+            };
+
+            switchVpnTab(activeVpnTab);
+            refreshVpnConnectionUI(data);
+        }
+
+        function toggleVpnConnection() {
+            if (!currentData) {
+                showToast('Tunggu pemindaian IP selesai sebelum menghubungkan VPN.', 'info');
+                return;
+            }
+
+            const btn = document.getElementById('btn-vpn-connect');
+            const label = document.getElementById('btn-vpn-label');
+            const icon = document.getElementById('btn-vpn-icon');
+
+            if (!vpnConnected) {
+                // Simulasi handshake WireGuard
+                btn.disabled = true;
+                icon.className = 'fa-solid fa-circle-notch fa-spin';
+                label.textContent = `Handshake ke ${currentData.city}...`;
+
+                setTimeout(() => {
+                    vpnConnected = true;
+                    btn.disabled = false;
+                    refreshVpnConnectionUI(currentData);
+                    showToast(`Tunnel terenkripsi aktif ke gateway ${currentData.city}, ${currentData.countryCode} (${currentData.asn})!`, 'success');
+                }, 650);
+            } else {
+                vpnConnected = false;
+                refreshVpnConnectionUI(currentData);
+                showToast('Koneksi VPN regional diputuskan.', 'info');
+            }
+        }
+
+        function refreshVpnConnectionUI(data) {
+            const btn = document.getElementById('btn-vpn-connect');
+            const label = document.getElementById('btn-vpn-label');
+            const icon = document.getElementById('btn-vpn-icon');
+            const badge = document.getElementById('vpn-tunnel-badge');
+            const stroke = document.getElementById('vpn-animated-stroke');
+            const localStatus = document.getElementById('vpn-local-status');
+            const latencyLabel = document.getElementById('vpn-latency-label');
+            const headerPill = document.getElementById('header-vpn-pill');
+            const headerDot = document.getElementById('header-vpn-dot');
+            const headerText = document.getElementById('header-vpn-text');
+
+            if (vpnConnected && data) {
+                btn.className = 'px-5 py-3 rounded-xl bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/50 text-rose-300 font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 transition-all active:scale-95 shrink-0';
+                icon.className = 'fa-solid fa-plug-circle-xmark';
+                label.textContent = `Putuskan VPN (${data.city})`;
+
+                badge.textContent = 'TUNNEL AKTIF • ENCRYPTED';
+                badge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 mb-1.5';
+                stroke.classList.remove('hidden');
+
+                const estPing = data.countryCode === 'ID' ? '14 ms' : (data.continent === 'Asia' ? '38 ms' : '142 ms');
+                localStatus.innerHTML = `<span class="text-emerald-400">IP Virtual: ${data.ip}</span>`;
+                latencyLabel.textContent = `WireGuard • Ping ~${estPing}`;
+
+                headerPill.className = 'hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-xs font-mono text-emerald-300';
+                headerDot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-ping';
+                headerText.textContent = `VPN: ${data.city}, ${data.countryCode}`;
+            } else {
+                btn.className = 'px-5 py-3 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-bold text-xs sm:text-sm flex items-center justify-center gap-2.5 shadow-lg shadow-emerald-500/25 transition-all active:scale-95 shrink-0';
+                icon.className = 'fa-solid fa-power-off';
+                label.textContent = data ? `Hubungkan VPN ke ${data.city}` : 'Hubungkan VPN ke Target';
+
+                badge.textContent = 'STANDBY';
+                badge.className = 'px-2.5 py-0.5 rounded-full text-[10px] font-mono bg-slate-800 text-slate-400 border border-slate-700 mb-1.5';
+                stroke.classList.add('hidden');
+
+                localStatus.textContent = 'Status: Siap Tunneling';
+                latencyLabel.textContent = 'WireGuard • ChaCha20';
+
+                headerPill.className = 'hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs font-mono text-slate-400';
+                headerDot.className = 'w-2 h-2 rounded-full bg-slate-600';
+                headerText.textContent = 'VPN: Direct ISP';
+            }
+        }
+
+        function switchVpnTab(tab) {
+            activeVpnTab = tab;
+            const tabs = {
+                wireguard: document.getElementById('tab-wg'),
+                openvpn: document.getElementById('tab-ovpn'),
+                socks5: document.getElementById('tab-socks')
+            };
+
+            Object.entries(tabs).forEach(([key, el]) => {
+                if (!el) return;
+                if (key === tab) {
+                    el.className = 'px-3 py-1.5 rounded-lg text-xs font-mono font-semibold bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 transition';
+                } else {
+                    el.className = 'px-3 py-1.5 rounded-lg text-xs font-mono text-slate-400 hover:text-white transition';
+                }
+            });
+
+            const preview = document.getElementById('vpn-config-preview');
+            if (preview && generatedVpnProfiles[tab]) {
+                preview.textContent = generatedVpnProfiles[tab];
+            }
+        }
+
+        function copyVpnConfig() {
+            const content = generatedVpnProfiles[activeVpnTab];
+            if (!content) return;
+            copyTextToClipboard(content, `Konfigurasi ${activeVpnTab.toUpperCase()}`);
+        }
+
+        function downloadVpnConfig() {
+            const content = generatedVpnProfiles[activeVpnTab];
+            if (!content) return;
+
+            const ext = activeVpnTab === 'openvpn' ? '.ovpn' : (activeVpnTab === 'socks5' ? '.txt' : '.conf');
+            const baseName = generatedVpnProfiles.filename.replace(/\.conf$/, '');
+            const finalFilename = `${baseName}${ext}`;
+
+            const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = finalFilename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showToast(`File ${finalFilename} berhasil diunduh!`, 'success');
+        }
+
+        /**
+         * Memperbarui Seluruh Antarmuka dengan Data Hasil Sintesis
+         */
+        function updateUI(data) {
+            document.getElementById('res-ip').textContent = data.ip;
+            
+            const verBadge = document.getElementById('ip-version-badge');
+            if (verBadge) {
+                verBadge.textContent = data.type;
+                verBadge.className = data.type === 'IPv6'
+                    ? 'px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/30'
+                    : 'px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold bg-cyan-500/15 text-cyan-400 border border-cyan-500/30';
+            }
+
+            const srcBadge = document.getElementById('ip-source-badge');
+            if (srcBadge) {
+                if (data.isSelf) {
+                    srcBadge.textContent = 'IP Perangkat Anda';
+                    srcBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30';
+                } else if (data.resolvedFromDomain) {
+                    srcBadge.textContent = `Domain: ${data.resolvedFromDomain}`;
+                    srcBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-mono font-medium bg-cyan-500/15 text-cyan-300 border border-cyan-500/30';
+                } else {
+                    srcBadge.textContent = 'Target Pencarian';
+                    srcBadge.className = 'px-2.5 py-0.5 rounded-md text-[11px] font-medium bg-blue-500/15 text-blue-400 border border-blue-500/30';
+                }
+            }
+
+            // Badge Skor Akurasi
+            const accBadge = document.getElementById('accuracy-score-badge');
+            if (accBadge) {
+                const badgeStyles = {
+                    high: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+                    medium: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+                    low: 'bg-orange-500/15 text-orange-300 border-orange-500/30',
+                    virtual: 'bg-purple-500/15 text-purple-300 border-purple-500/30'
+                };
+                accBadge.className = `px-2.5 py-0.5 rounded-md text-[11px] font-mono font-semibold border flex items-center gap-1.5 ${badgeStyles[data.accuracyLevel] || badgeStyles.medium}`;
+                accBadge.innerHTML = `<i class="fa-solid fa-crosshairs"></i><span>${data.accuracyBadgeText}</span>`;
+            }
+
+            // Penjelasan Anti-Nyasar & PTR
+            const accExpl = document.getElementById('accuracy-explanation-text');
+            if (accExpl) accExpl.innerHTML = data.explanation;
+            
+            const resPtr = document.getElementById('res-ptr');
+            if (resPtr) resPtr.innerHTML = `<i class="fa-solid fa-arrow-right-arrow-left text-slate-500"></i><span>rDNS / PTR: <span class="text-cyan-300">${data.ptrRecord || 'Tidak ada PTR record'}</span></span>`;
+
+            // KARTU TERPADU: 1. Lokasi Kota & Negara
+            const flagEmoji = getFlagEmoji(data.countryCode);
+            const ucCity = document.getElementById('unified-city-country');
+            if (ucCity) ucCity.innerHTML = `${flagEmoji} ${data.city}, ${data.country}`;
+
+            const ucReg = document.getElementById('unified-region-postal');
+            if (ucReg) ucReg.textContent = `${data.region} • Kode Pos: ${data.postal} (${data.continent})`;
+
+            const resRadius = document.getElementById('res-radius');
+            if (resRadius) resRadius.textContent = data.radiusLabel;
+
+            const hasCoords = typeof data.latitude === 'number' && typeof data.longitude === 'number';
+            const coordStr = hasCoords ? `${data.latitude.toFixed(4)}, ${data.longitude.toFixed(4)}` : 'Tidak Tersedia';
+            
+            const resCoords = document.getElementById('res-coords');
+            if (resCoords) resCoords.textContent = coordStr;
+
+            const resUtc = document.getElementById('res-utc-offset');
+            if (resUtc) resUtc.textContent = `UTC ${data.utcOffset}`;
+
+            // KARTU TERPADU: 2. ASN, BGP & Zona Waktu
+            const resAsn = document.getElementById('res-asn');
+            if (resAsn) resAsn.textContent = data.asn;
+
+            const resRir = document.getElementById('res-rir');
+            if (resRir) resRir.textContent = data.rirName;
+
+            const resBgp = document.getElementById('res-bgp-prefix');
+            if (resBgp) resBgp.textContent = `BGP: ${data.bgpPrefix}`;
+
+            const resTz = document.getElementById('res-timezone');
+            if (resTz) resTz.textContent = data.timezoneId;
+
+            const resLocalTime = document.getElementById('res-localtime');
+            if (resLocalTime) {
+                try {
+                    const localTimeFormatted = new Intl.DateTimeFormat('id-ID', {
+                        timeZone: data.timezoneId,
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    }).format(new Date());
+                    resLocalTime.textContent = `${localTimeFormatted} WIB/Lokal`;
+                } catch {
+                    resLocalTime.textContent = '-';
+                }
+            }
+
+            // KARTU TERPADU: 3. ISP & Organisasi
+            const ispEl = document.getElementById('res-isp');
+            if (ispEl) {
+                ispEl.textContent = data.isp;
+                ispEl.title = data.isp;
+            }
+
+            const resOrg = document.getElementById('res-org');
+            if (resOrg) resOrg.textContent = data.org !== data.isp ? data.org : 'Organisasi Terdaftar';
+
+            const resNetClass = document.getElementById('res-net-class');
+            if (resNetClass) resNetClass.textContent = data.networkClass;
+
+            const resAsnDomain = document.getElementById('res-asn-domain');
+            if (resAsnDomain) resAsnDomain.textContent = data.domain !== '-' ? data.domain : data.rirName;
+
+            // Perbarui Modul VPN Tunnel Regional sesuai kota & ASN target
+            updateRegionalVpnModule(data);
+
+            // Render Tabel Perbandingan Multi-Sumber
+            const tbody = document.getElementById('comparison-table-body');
+            if (tbody) {
+                tbody.innerHTML = data.comparisonRows.map(row => `
+                    <tr class="hover:bg-slate-900/50 transition">
+                        <td class="py-2.5 px-3 font-semibold text-slate-200 whitespace-nowrap">${row.source}</td>
+                        <td class="py-2.5 px-3 text-slate-300">${row.location}</td>
+                        <td class="py-2.5 px-3 text-slate-400 max-w-[200px] truncate" title="${row.asnOrg}">${row.asnOrg}</td>
+                        <td class="py-2.5 px-3 text-cyan-400 whitespace-nowrap">${row.coords}</td>
+                        <td class="py-2.5 px-3 whitespace-nowrap">
+                            ${row.ok
+                                ? '<span class="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-[10px]">Terverifikasi</span>'
+                                : '<span class="px-2 py-0.5 rounded bg-slate-800 text-slate-500 text-[10px]">Dilewati</span>'}
+                        </td>
+                    </tr>
+                `).join('');
+            }
+
+            // Update Peta Interaktif dengan Radius Akurasi & Marker Pembanding (atau Fallback Radar)
+            if (hasCoords) {
+                const gmapsLink = document.getElementById('gmaps-link');
+                if (gmapsLink) gmapsLink.href = `https://www.google.com/maps?q=${data.latitude},${data.longitude}`;
+
+                if (map && mapLayerGroup && typeof L !== 'undefined') {
+                    mapLayerGroup.clearLayers();
+                    const latLng = [data.latitude, data.longitude];
+
+                    // Lingkaran Radius Akurasi
+                    L.circle(latLng, {
+                        color: '#06B6D4',
+                        fillColor: '#06B6D4',
+                        fillOpacity: 0.14,
+                        weight: 1.5,
+                        radius: data.radiusMeters
+                    }).addTo(mapLayerGroup);
+
+                    // Marker Utama (Konsensus)
+                    L.marker(latLng).addTo(mapLayerGroup)
+                        .bindPopup(`
+                            <div style="font-family: Inter, sans-serif; min-width: 180px;">
+                                <strong style="font-size: 13px;">${data.ip}</strong><br>
+                                <span style="color: #0284c7; font-weight: 600;">${data.city}, ${data.country}</span><br>
+                                <small>${data.asn} • ${data.isp}</small><br>
+                                <small style="color: #64748b;">Radius: ${data.radiusLabel}</small>
+                            </div>
+                        `)
+                        .openPopup();
+
+                    // Jika Sumber A dan Sumber B berbeda jauh (> 25 km), tampilkan titik pembanding kedua
+                    if (data.diffKm !== null && data.diffKm > 25 && data.sourceACoords && data.sourceBCoords) {
+                        const altCoords = data.sourceBCoords;
+                        L.circleMarker(altCoords, {
+                            radius: 7,
+                            color: '#F59E0B',
+                            fillColor: '#F59E0B',
+                            fillOpacity: 0.85
+                        }).addTo(mapLayerGroup)
+                          .bindPopup(`<b>Lokasi Alternatif (Sumber B)</b><br>${data.sourceBCity}<br><small>Selisih ${Math.round(data.diffKm)} km dari Sumber A</small>`);
+                        
+                        const bounds = L.latLngBounds([latLng, altCoords]);
+                        map.fitBounds(bounds, { padding: [45, 45], maxZoom: 11 });
+                    } else {
+                        const zoomLevel = data.radiusMeters >= 30000 ? 9 : (data.radiusMeters >= 15000 ? 10 : 12);
+                        map.setView(latLng, zoomLevel);
+                    }
+                    setTimeout(() => map.invalidateSize(), 150);
+                } else {
+                    renderFallbackRadarMap(data.latitude, data.longitude, `${data.city}, ${data.country}`, `${data.asn} • ${data.isp} (${data.radiusLabel})`);
+                }
+            }
+        }
+
+        /**
+         * Manajemen Riwayat Pencarian Lokal (Aman di Sandbox / Incognito)
+         */
+        function getHistory() {
+            try {
+                const raw = localStorage.getItem(HISTORY_STORAGE_KEY);
+                return raw ? JSON.parse(raw) : memoryHistoryFallback;
+            } catch {
+                return memoryHistoryFallback;
+            }
+        }
+
+        function saveToHistory(item) {
+            let history = getHistory();
+            history = history.filter(h => h.ip !== item.ip);
+            
+            history.unshift({
+                ip: item.ip,
+                type: item.type,
+                asn: item.asn,
+                isp: item.isp,
+                countryCode: item.countryCode,
+                city: item.city,
+                domain: item.resolvedFromDomain || null,
+                accuracyLevel: item.accuracyLevel,
+                timestamp: new Date().toISOString()
+            });
+
+            if (history.length > 25) history = history.slice(0, 25);
+            memoryHistoryFallback = history;
+            try {
+                localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+            } catch (_) {}
+            renderHistory();
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-list');
+            const clearBtn = document.getElementById('btn-clear-history');
+            const history = getHistory();
+
+            if (history.length === 0) {
+                clearBtn.classList.add('hidden');
+                container.innerHTML = `
+                    <div class="text-center py-12 px-4 text-slate-500 space-y-2">
+                        <i class="fa-solid fa-folder-open text-2xl text-slate-700"></i>
+                        <p class="text-xs">Belum ada riwayat pencarian IP.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            clearBtn.classList.remove('hidden');
+            container.innerHTML = history.map(item => {
+                const flag = getFlagEmoji(item.countryCode);
+                const timeStr = new Date(item.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+                const dotColor = item.accuracyLevel === 'high' ? 'bg-emerald-400' : (item.accuracyLevel === 'virtual' ? 'bg-purple-400' : 'bg-amber-400');
+                return `
+                    <div onclick="quickLookup('${item.ip}')" class="group p-3 rounded-xl bg-slate-950/70 hover:bg-slate-900 border border-slate-800/80 hover:border-cyan-500/40 cursor-pointer transition-all">
+                        <div class="flex items-center justify-between gap-2 mb-1">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <span class="w-2 h-2 rounded-full ${dotColor} shrink-0"></span>
+                                <span class="font-mono text-sm font-semibold text-white group-hover:text-cyan-400 transition truncate">${item.ip}</span>
+                            </div>
+                            <span class="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 shrink-0">${item.asn}</span>
+                        </div>
+                        ${item.domain ? `<div class="text-[10px] font-mono text-cyan-400/80 mb-0.5 truncate"><i class="fa-solid fa-globe mr-1"></i>${item.domain}</div>` : ''}
+                        <div class="flex items-center justify-between text-xs text-slate-400">
+                            <span class="truncate max-w-[175px]">${flag} ${item.city || '-'} • ${item.isp}</span>
+                            <span class="text-[10px] font-mono text-slate-600 shrink-0">${timeStr}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function clearHistory() {
+            memoryHistoryFallback = [];
+            try {
+                localStorage.removeItem(HISTORY_STORAGE_KEY);
+            } catch (_) {}
+            renderHistory();
+            showToast('Riwayat pencarian lokal berhasil dibersihkan.', 'info');
+        }
+
+        /**
+         * Utilitas Salin Cepat (Kompatibel dengan Iframe)
+         */
+        function copyTextToClipboard(text, label) {
+            if (!text || text === '-' || text === 'Memuat...') return;
+            
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            textarea.style.position = 'fixed';
+            textarea.style.opacity = '0';
+            document.body.appendChild(textarea);
+            textarea.select();
+            
+            try {
+                document.execCommand('copy');
+                showToast(`${label} berhasil disalin: ${text.length > 32 ? text.substring(0, 32) + '...' : text}`, 'success');
+            } catch (err) {
+                showToast('Gagal menyalin teks ke clipboard.', 'error');
+            } finally {
+                document.body.removeChild(textarea);
+            }
+        }
+
+        function copyField(elementId, label) {
+            const text = document.getElementById(elementId).textContent.trim();
+            copyTextToClipboard(text, label);
+        }
+
+        function copyAllJson() {
+            if (!currentData) return;
+            const jsonString = JSON.stringify(currentData, null, 2);
+            copyTextToClipboard(jsonString, 'Data JSON Lengkap');
+        }
+
+        function copyTextReport() {
+            if (!currentData) return;
+            const d = currentData;
+            const report = [
+                `=== LAPORAN INTELIJEN IP & ASN (NETTRACE PRO) ===`,
+                `Alamat IP      : ${d.ip} (${d.type})`,
+                d.resolvedFromDomain ? `Domain Asal    : ${d.resolvedFromDomain}` : null,
+                `Reverse DNS    : ${d.ptrRecord || '-'}`,
+                `ASN & RIR      : ${d.asn} (${d.rirName})`,
+                `BGP Prefix     : ${d.bgpPrefix}`,
+                `ISP / Org      : ${d.isp} / ${d.org}`,
+                `Klasifikasi    : ${d.networkClass}`,
+                `Lokasi         : ${d.city}, ${d.region}, ${d.country} (${d.countryCode})`,
+                `Koordinat      : ${d.latitude}, ${d.longitude} (${d.radiusLabel})`,
+                `Status Akurasi : ${d.accuracyBadgeText}`,
+                `Google Maps    : https://www.google.com/maps?q=${d.latitude},${d.longitude}`
+            ].filter(Boolean).join('\n');
+            copyTextToClipboard(report, 'Laporan Teks Diagnostik');
+        }
+
+        function showBanner(message, type = 'error') {
+            const banner = document.getElementById('status-banner');
+            banner.classList.remove('hidden');
+            if (type === 'warning') {
+                banner.className = 'rounded-2xl p-4 border border-amber-500/40 bg-amber-500/10 text-amber-200 text-sm flex items-center justify-between gap-3';
+                banner.innerHTML = `<div class="flex items-center gap-2.5"><i class="fa-solid fa-circle-info text-amber-400"></i><span>${message}</span></div><button onclick="hideBanner()" class="text-amber-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>`;
+            } else {
+                banner.className = 'rounded-2xl p-4 border border-rose-500/40 bg-rose-500/10 text-rose-300 text-sm flex items-center justify-between gap-3';
+                banner.innerHTML = `<div class="flex items-center gap-2.5"><i class="fa-solid fa-triangle-exclamation text-rose-400"></i><span>${message}</span></div><button onclick="hideBanner()" class="text-rose-400 hover:text-white"><i class="fa-solid fa-xmark"></i></button>`;
+            }
+        }
+
+        function hideBanner() {
+            document.getElementById('status-banner').classList.add('hidden');
+        }
+
+        function setLoadingState(isLoading) {
+            const btn = document.getElementById('btn-search');
+            if (isLoading) {
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-circle-notch fa-spin"></i><span>Melacak...</span>`;
+                document.getElementById('res-ip').textContent = 'Memindai Jaringan...';
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fa-solid fa-magnifying-glass"></i><span>Lacak IP & ASN</span>`;
+            }
+        }
+
+        function getFlagEmoji(countryCode) {
+            if (!countryCode || countryCode.length !== 2) return '🌐';
+            const codePoints = countryCode
+                .toUpperCase()
+                .split('')
+                .map(char => 127397 + char.charCodeAt());
+            return String.fromCodePoint(...codePoints);
+        }
+    </script>
+</body>
+</html>
